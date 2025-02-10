@@ -4,6 +4,24 @@ from os import path
 from scipy import stats
 from scipy.signal import decimate
 
+def get_traj_zero(pos):
+    temp = []
+    for each in pos:
+        temp.append(each[:6, :])
+    temp_ = np.concatenate(temp)
+    return np.mean(temp_, axis = 0)
+
+def determine_dir(dir_list):
+    target_list = [-180, -135, -90, -45, 0, 45, 90, 135, 180]
+    target_dir = []
+    for each in dir_list:
+        temp = np.abs(each - np.array(target_list))
+        idx = np.argmin(temp)
+        if idx == 0:
+            idx = 8
+        target_dir.append(target_list[idx])
+    return target_dir
+
 class trial_data:
     def __init__(self, base_path, file_name):
         if base_path[-1] != '/':
@@ -26,6 +44,20 @@ class trial_data:
             each['idx_movement_on'] = each['idx_movement_on'][0][0]
             each['idx_peak_speed'] = each['idx_peak_speed'][0][0]
             each['idx_trial_end'] = each['idx_trial_end'][0][0]
+        #---- trial direction correction
+        pos = self.trials[0]['pos']
+        z = get_traj_zero(pos)
+        new_dir = []
+        for each in pos:
+            x, y = each[-1, 0]-z[0], each[-1, 1]-z[1]
+            l = np.sqrt(x**2+y**2)
+            temp = np.arccos(x/l)
+            temp = np.rad2deg(temp)*y/np.abs(y)
+            new_dir.append(temp)
+        self.new_dir = determine_dir(new_dir)
+        # for i in range(len(self.trials[0])):
+        #     self.trials[0]['target_direction'][i][0][0] = self.new_dir[i]
+
         
     def get_spikes(self, trial_result, epoch, array):
         """
@@ -77,8 +109,15 @@ class trial_data:
             return [each['trial_id'][0][0] for each in self.trials[0] 
                     if (each['result'] == trial_result)&(each['epoch'] == epoch)]
         if info_type == 'target_direction': 
-            return [int(np.round(np.rad2deg(each['target_direction'][0][0]))) for each in self.trials[0] 
-                    if (each['result'] == trial_result)&(each['epoch'] == epoch)]
+            temp1, temp2 = self.trials[0]['result'], self.trials[0]['epoch']
+            idx = np.where((temp1==trial_result)&(temp2==epoch))[0]
+            temp = [self.new_dir[i] for i in idx]
+            return temp
+            
+            # return [each['target_direction'][0][0] for each in self.trials[0] 
+            #         if (each['result'] == trial_result)&(each['epoch'] == epoch)]
+            # return [int(np.round(np.rad2deg(each['target_direction'][0][0]))) for each in self.trials[0] 
+            #         if (each['result'] == trial_result)&(each['epoch'] == epoch)]
         if info_type == 'timing':
             timing = {}
             timing['idx_trial_start'] = [each['idx_trial_start'] for each in self.trials[0]
@@ -121,7 +160,7 @@ class trial_data:
             pos_new = decimate(each['pos'], K, axis = 0)
             vel_new = decimate(each['vel'], K, axis = 0)
             acc_new = decimate(each['acc'], K, axis = 0)
-            force_new = decimate(each['force'], K, axis = 0)
+            # force_new = decimate(each['force'], K, axis = 0)
             #---- update the fields in the data structure ----#
             T = min(pos_new.shape[0], M1_spike_counts_new.shape[0])
             each['M1_spikes'] = M1_spike_counts_new[:T, :]
@@ -129,7 +168,7 @@ class trial_data:
             each['pos'] = pos_new[:T, :]
             each['vel'] = vel_new[:T, :]
             each['acc'] = acc_new[:T, :]
-            each['force'] = force_new[:T, :]
+            # each['force'] = force_new[:T, :]
             #---- update the indices for go cue and so on ----#
             try:
                 each['idx_trial_start'] = int(np.floor(each['idx_trial_start']/K))
